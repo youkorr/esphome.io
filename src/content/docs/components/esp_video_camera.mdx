@@ -21,16 +21,21 @@ esp_video_camera:
 
 ## Configuration Variables
 
-- **name** (*Optional*, string): The name of the camera entity. At least one of `name` or `id` has to be given.
+- **id** (*Optional*, string): Manually specify the ID for code generation. At least one of **id** and **name** must
+  be specified.
+- **name** (*Optional*, string): The name of the camera entity. At least one of **id** and **name** must be
+  specified.
 - **i2c_id** (*Optional*, ID): The [I²C](/components/i2c/) bus used to talk to the MIPI-CSI sensor (SCCB). Required
   for every device except a USB camera.
 - **device** (*Optional*, string): Frame source. Defaults to `jpeg`.
   - `jpeg`: the hardware JPEG encoder — works with every auto-detected MIPI sensor.
   - `uvc` / `uvc0` … `uvc9`: a USB-UVC camera. Needs `enable_uvc: true`.
-  - `/dev/videoN`: an explicit V4L2 device path.
+  - `/dev/videoN`: an explicit V4L2 device path. `esp_video` numbers USB-UVC cameras `/dev/video40` upwards, so
+    such a path needs `enable_uvc: true` as well.
 - **resolution** (*Optional*, string): Capture resolution. Defaults to `auto`, which uses the detected sensor's
-  native format and is the most reliable choice. Any other value needs `sensor_model` beside it; see
-  [Sensors and Resolutions](#sensors-and-resolutions).
+  native format. For a MIPI-CSI sensor any other value needs `sensor_model` beside it; see
+  [Sensors and Resolutions](#sensors-and-resolutions). A USB camera carries its own format list and is resized at
+  runtime, so it takes a resolution on its own.
 - **sensor_model** (*Optional*, string): The MIPI-CSI sensor on the board: `sc202cs` (alias `sc2356`), `ov5647` or
   `sc2336`. Only needed in order to ask for a specific `resolution`; detection does not use it.
 - **jpeg_quality** (*Optional*, int): `1`–`100` for the hardware JPEG encoder, where **higher is better**. Defaults
@@ -43,7 +48,8 @@ esp_video_camera:
 - **enable_xclk** (*Optional*, boolean): Generate XCLK with LEDC, for boards that do not drive it themselves.
   Defaults to `false`. Needs `xclk_pin` to be set.
 - **enable_uvc** (*Optional*, boolean): Bring up the USB host and the UVC driver for an external USB camera.
-  Defaults to `false`. Has to match `device`: a `uvc` device needs it, and anything else must not have it.
+  Defaults to `false`. Has to match `device`: the `uvc` aliases and the `/dev/video4N` paths they resolve to need
+  it, and every other device must not have it.
 - **usb_peripheral_map** (*Optional*, int): Which of the ESP32-P4's two USB controllers the board wires its host
   connector to, as a bit mask. Defaults to `0`, the High-Speed one, which is right for most boards.
 - All other options from the [Camera](/components/camera/) component.
@@ -65,8 +71,9 @@ that sensor really has are accepted:
 | `ov5647` | 800x640, 800x800, 800x1280, 1280x960, 1920x1080 |
 | `sc2336` | 640x480, 800x800, 1024x600, 1280x720, 1920x1080 |
 
-The aliases `QVGA`, `VGA` / `480P`, `720P` and `1080P` may be used in place of `WIDTHxHEIGHT`, but only where the
-sensor has that size.
+The aliases `VGA` / `480P`, `720P` and `1080P` may be used in place of `WIDTHxHEIGHT` where the sensor has that
+size. `QVGA` is accepted too, but none of these three sensors has a 320x240 format, so it is only of use to a USB
+camera.
 
 ```yaml
 esp_video_camera:
