@@ -1,59 +1,100 @@
 ---
-title: ESP-Video Camera
-description: Instructions for setting up an ESP-Video (V4L2) camera on the ESP32-P4 in ESPHome.
+title: "ESP-Video Camera"
+description: "Instructions for setting up an ESP-Video (V4L2) camera on the ESP32-P4 in ESPHome."
 ---
 
-The `esp_video_camera` [camera](/components/camera/) platform exposes the camera of an
-**ESP32-P4** to Home Assistant as a native camera entity, using Espressif's
-`esp_video` (V4L2) framework. It works with auto-detected MIPI-CSI sensors
-(SC202CS, OV5647, SC2336) through the hardware JPEG encoder, and with
-USB-UVC cameras on the USB-OTG port.
+The `esp_video_camera` [camera](/components/camera/) platform exposes the camera of an **ESP32-P4** to Home Assistant
+as a native camera entity, using Espressif's `esp_video` (V4L2) framework. It works with auto-detected MIPI-CSI
+sensors (SC202CS, OV5647, SC2336) through the hardware JPEG encoder, and with USB-UVC cameras on the USB-OTG port.
 
-Requires an [I²C](/components/i2c/) bus and the ESP-IDF framework on the ESP32-P4.
+Requires the ESP-IDF framework on an ESP32-P4 and [PSRAM](/components/psram/): a single 1280x720 capture buffer is
+already 1.8 MB, well past what internal RAM can hold. A MIPI-CSI sensor is probed over [I²C](/components/i2c/), so
+that bus has to be configured as well; a USB camera is not on any bus and needs none.
+
+## Configuration
 
 ```yaml
-# Shared I2C bus for the camera sensor
-i2c:
-  - id: bus_a
-    sda: GPIO31
-    scl: GPIO32
-    frequency: 400kHz
-
 esp_video_camera:
-  name: ESP32-P4 Camera
+  name: "ESP32-P4 Camera"
   i2c_id: bus_a
-  device: jpeg
-  resolution: auto
-  jpeg_quality: 10
-  max_framerate: 10
 ```
 
-## Configuration variables
+## Configuration Variables
 
-- **name** (**Required**, string): The name of the camera entity.
-- **i2c_id** (**Required**, ID): The [I²C](/components/i2c/) bus used to talk to the MIPI-CSI sensor (SCCB).
+- **name** (*Optional*, string): The name of the camera entity. At least one of `name` or `id` has to be given.
+- **i2c_id** (*Optional*, ID): The [I²C](/components/i2c/) bus used to talk to the MIPI-CSI sensor (SCCB). Required
+  for every device except a USB camera.
 - **device** (*Optional*, string): Frame source. Defaults to `jpeg`.
   - `jpeg`: the hardware JPEG encoder — works with every auto-detected MIPI sensor.
-  - `uvc` / `uvc0` … `uvc9`: a USB-UVC camera.
-  - `csi`: the raw MIPI-CSI device.
+  - `uvc` / `uvc0` … `uvc9`: a USB-UVC camera. Needs `enable_uvc: true`.
   - `/dev/videoN`: an explicit V4L2 device path.
-- **resolution** (*Optional*, string): Capture resolution. Defaults to `auto`,
-  which uses the detected sensor's native format and is the most reliable
-  choice. You can also request a specific resolution **that the sensor
-  supports** — an alias (`QVGA`, `VGA`/`480P`, `720P`, `1080P`) or
-  `WIDTHxHEIGHT` (e.g. `1280x720`). A specific value is applied best-effort: if
-  the sensor cannot provide it, the current format is kept. The available
-  resolutions depend on the detected sensor.
-- **jpeg_quality** (*Optional*, int): `1`–`63` for the hardware JPEG encoder. Defaults to `10`.
-- **max_framerate** (*Optional*, float): Maximum frames per second delivered to Home Assistant. Defaults to `10`.
-- **xclk_pin** (*Optional*, pin): Sensor XCLK pin, or `-1` for an on-board oscillator. Defaults to `GPIO36`.
-- **xclk_frequency** (*Optional*, float): XCLK frequency (1–40 MHz). Defaults to `24MHz`.
-- **enable_xclk** (*Optional*, boolean): Generate XCLK via LEDC (non-M5Stack boards). Defaults to `false`.
-- **enable_uvc** (*Optional*, boolean): Bring up the USB host + UVC driver for an external USB camera. Defaults to `false`.
+- **resolution** (*Optional*, string): Capture resolution. Defaults to `auto`, which uses the detected sensor's
+  native format and is the most reliable choice. Any other value needs `sensor_model` beside it; see
+  [Sensors and Resolutions](#sensors-and-resolutions).
+- **sensor_model** (*Optional*, string): The MIPI-CSI sensor on the board: `sc202cs` (alias `sc2356`), `ov5647` or
+  `sc2336`. Only needed in order to ask for a specific `resolution`; detection does not use it.
+- **jpeg_quality** (*Optional*, int): `1`–`100` for the hardware JPEG encoder, where **higher is better**. Defaults
+  to `80`, the encoder's own default.
+- **max_framerate** (*Optional*, float): Maximum frames per second delivered to Home Assistant, `0.1`–`60`. Defaults
+  to `10`.
+- **xclk_pin** (*Optional*, pin): Sensor XCLK pin, or `-1` / `NO_CLOCK` for a board that already drives the clock.
+  No default, because most ESP32-P4 boards have their own oscillator.
+- **xclk_frequency** (*Optional*, float): XCLK frequency, 1–40 MHz. Defaults to `24MHz`.
+- **enable_xclk** (*Optional*, boolean): Generate XCLK with LEDC, for boards that do not drive it themselves.
+  Defaults to `false`. Needs `xclk_pin` to be set.
+- **enable_uvc** (*Optional*, boolean): Bring up the USB host and the UVC driver for an external USB camera.
+  Defaults to `false`. Has to match `device`: a `uvc` device needs it, and anything else must not have it.
+- **usb_peripheral_map** (*Optional*, int): Which of the ESP32-P4's two USB controllers the board wires its host
+  connector to, as a bit mask. Defaults to `0`, the High-Speed one, which is right for most boards.
 - All other options from the [Camera](/components/camera/) component.
+
+> [!IMPORTANT]
+> `jpeg_quality` is not the `1`–`63` scale of the [ESP32 Camera](/components/esp32_camera/) component, where lower
+> is better. Here it is V4L2's `1`–`100`, where higher is better; a value around `10` gives a heavily blocked
+> picture of a few tens of kilobytes.
+
+## Sensors and Resolutions
+
+A MIPI-CSI sensor's output format is fixed when the firmware is built, so `resolution` is resolved at compile time
+rather than negotiated on the device. Asking for one therefore means naming the sensor as well, and only the formats
+that sensor really has are accepted:
+
+| `sensor_model` | Resolutions |
+| --- | --- |
+| `sc202cs` (alias `sc2356`) | 1280x720, 1600x900, 1600x1200 |
+| `ov5647` | 800x640, 800x800, 800x1280, 1280x960, 1920x1080 |
+| `sc2336` | 640x480, 800x800, 1024x600, 1280x720, 1920x1080 |
+
+The aliases `QVGA`, `VGA` / `480P`, `720P` and `1080P` may be used in place of `WIDTHxHEIGHT`, but only where the
+sensor has that size.
+
+```yaml
+esp_video_camera:
+  name: "ESP32-P4 Camera"
+  i2c_id: bus_a
+  sensor_model: sc202cs
+  resolution: 1280x720
+```
+
+Leaving `resolution` at `auto` needs no `sensor_model` and works with whichever of the three sensors is on the board.
+
+## USB Cameras
+
+A USB-UVC camera needs no I²C bus; `enable_uvc: true` compiles in the USB host and the UVC driver.
+
+```yaml
+esp_video_camera:
+  name: "USB Camera"
+  device: uvc
+  enable_uvc: true
+```
+
+> [!WARNING]
+> `enable_uvc: true` cannot be used in the same configuration as the [USB Host](/components/usb_host/) component,
+> which [USB UART](/components/usb_uart/) also pulls in: both want to own the USB host library, and the result
+> is a boot loop rather than a clear failure. A MIPI-CSI camera does not touch it and is free to sit beside them.
 
 ## See Also
 
 - [Camera Component](/components/camera/)
-
-
+- [ESP32 Camera Component](/components/esp32_camera/)
